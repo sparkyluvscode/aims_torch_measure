@@ -17,10 +17,10 @@ import numpy as np
 import torch
 from tabpfn import TabPFNClassifier
 
-from torch_measure.models._base import IRTModel
+from torch_measure.models._predictor import Predictor
 
 
-class TabPFNPredictor(IRTModel):
+class TabPFNPredictor(Predictor):
     """Per-cell TabPFN predictor for cold-item performance prediction.
 
     Each (subject, item) cell becomes a training row with features
@@ -30,10 +30,12 @@ class TabPFNPredictor(IRTModel):
 
     Unlike :class:`AmortizedIRT`, this model does not factorize into
     ability and difficulty -- subject identity is just one categorical
-    feature alongside the item-side features. Use this when item
-    features carry per-task signal beyond what subject identity already
-    encodes; on homogeneous benchmarks (where they don't) a row-mean
-    baseline can be hard to beat.
+    feature alongside the item-side features. It inherits
+    :class:`Predictor` directly (not :class:`IRTModel`) because it has
+    no latent factor parameters. Use this when item features carry
+    per-task signal beyond what subject identity already encodes; on
+    homogeneous benchmarks (where they don't) a row-mean baseline can
+    be hard to beat.
 
     Parameters
     ----------
@@ -65,9 +67,6 @@ class TabPFNPredictor(IRTModel):
 
     Notes
     -----
-    The model is non-factorized; ``.ability`` and ``.difficulty`` return
-    ``None``.
-
     The response matrix is treated as binary -- non-{0, 1} entries are
     cast to ``int`` after masking out NaN and -1, matching the
     convention of the other IRT models in this package.
@@ -75,12 +74,12 @@ class TabPFNPredictor(IRTModel):
     Examples
     --------
     >>> import torch
-    >>> from torch_measure.models import TabPFNPredictor
+    >>> from torch_measure.models import TabPFNPredictor, predict_dense
     >>> response = (torch.rand(20, 30) > 0.5).float()
     >>> features = torch.randn(30, 8)
     >>> model = TabPFNPredictor(n_subjects=20, n_items=30, n_features=8)
     >>> _ = model.fit(response, features)
-    >>> probs = model.predict()
+    >>> probs = predict_dense(model)
     >>> probs.shape
     torch.Size([20, 30])
     """
@@ -107,20 +106,6 @@ class TabPFNPredictor(IRTModel):
         self._item_features: torch.Tensor | None = None
         self._one_class_index: int | None = None
 
-    @property
-    def ability(self) -> None:
-        """Not applicable -- model is non-factorized.
-
-        Returns ``None``. Subject identity is treated as a categorical
-        feature, not a latent parameter.
-        """
-        return None
-
-    @property
-    def difficulty(self) -> None:
-        """Not applicable -- model is non-factorized. Returns ``None``."""
-        return None
-
     def _build_xy(
         self,
         response_matrix: np.ndarray,
@@ -142,16 +127,6 @@ class TabPFNPredictor(IRTModel):
                 y[k] = int(response_matrix[i, j])
                 k += 1
         return X, y
-
-    def _build_x_full(self, item_features: np.ndarray) -> np.ndarray:
-        """Build (n_subjects * n_items, n_features+1) query matrix."""
-        n_feat = item_features.shape[1] + 1
-        X = np.empty((self.n_subjects * self.n_items, n_feat), dtype=float)
-        for i in range(self.n_subjects):
-            s = i * self.n_items
-            X[s : s + self.n_items, : item_features.shape[1]] = item_features
-            X[s : s + self.n_items, -1] = float(i)
-        return X
 
     def _maybe_subsample(self, X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if len(y) <= self.max_train:
@@ -252,14 +227,19 @@ class TabPFNPredictor(IRTModel):
 
         return {"n_train": int(len(y)), "n_observed": int(n_observed)}
 
-    def predict(self) -> torch.Tensor:
-        """Predict P(correct) for every (subject, item) cell.
+    def predict(self, query: dict[str, torch.Tensor]) -> torch.Tensor:
+        """Predict P(correct) at the (subject, item) cells in ``query``.
+
+        Parameters
+        ----------
+        query : dict[str, torch.Tensor]
+            Must contain 1-D ``subject_idx`` and ``item_idx`` tensors of
+            equal length ``N``.
 
         Returns
         -------
         torch.Tensor
-            Probability matrix of shape (n_subjects, n_items) on the
-            model's device.
+            Probabilities, shape ``(N,)``, on the model's device.
 
         Raises
         ------
@@ -269,8 +249,15 @@ class TabPFNPredictor(IRTModel):
         if self._classifier is None or self._item_features is None:
             raise RuntimeError("Call fit() before predict()")
 
-        X_full = self._build_x_full(self._item_features.numpy())
-        proba = self._classifier.predict_proba(X_full)
+        s_idx = query["subject_idx"].cpu().numpy()
+        i_idx = query["item_idx"].cpu().numpy()
+        feats = self._item_features.numpy()
+        # Per-row design matrix: item features for the queried items, plus
+        # the subject id appended as the trailing categorical column.
+        X = np.empty((len(s_idx), feats.shape[1] + 1), dtype=float)
+        X[:, : feats.shape[1]] = feats[i_idx]
+        X[:, -1] = s_idx.astype(float)
+
+        proba = self._classifier.predict_proba(X)
         p1 = proba[:, self._one_class_index]
-        out = torch.from_numpy(p1.reshape(self.n_subjects, self.n_items)).float()
-        return out.to(self._device)
+        return torch.from_numpy(p1).float().to(self._device)

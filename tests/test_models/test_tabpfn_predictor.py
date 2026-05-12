@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from torch_measure.models import TabPFNPredictor
+from torch_measure.models._predictor import cartesian_query, predict_dense
 
 
 @pytest.mark.slow
@@ -13,8 +14,6 @@ class TestTabPFNPredictor:
         assert model.n_subjects == 10
         assert model.n_items == 20
         assert model.n_features == 8
-        assert model.ability is None
-        assert model.difficulty is None
 
     def test_fit_and_predict_shape(self, small_response_matrix):
         n_subjects, n_items = small_response_matrix.shape
@@ -30,7 +29,7 @@ class TestTabPFNPredictor:
         assert history["n_train"] == n_subjects * n_items
         assert history["n_observed"] == n_subjects * n_items
 
-        probs = model.predict()
+        probs = predict_dense(model)
         assert probs.shape == (n_subjects, n_items)
         assert (probs >= 0).all()
         assert (probs <= 1).all()
@@ -38,7 +37,7 @@ class TestTabPFNPredictor:
     def test_predict_requires_fit(self):
         model = TabPFNPredictor(n_subjects=10, n_items=20, n_features=8)
         with pytest.raises(RuntimeError):
-            model.predict()
+            model.predict(cartesian_query(10, 20))
 
     def test_fit_validates_feature_shape(self, small_response_matrix):
         n_subjects, n_items = small_response_matrix.shape
@@ -107,4 +106,5 @@ class TestTabPFNPredictor:
             n_features=n_features,
         )
         model.fit(small_response_matrix, features)
-        torch.testing.assert_close(model.forward(), model.predict())
+        query = cartesian_query(n_subjects, n_items)
+        torch.testing.assert_close(model(query), model.predict(query))
