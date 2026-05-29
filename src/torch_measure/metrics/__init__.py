@@ -4,7 +4,12 @@
 
 from torch_measure.metrics.calibration import brier_score, expected_calibration_error
 from torch_measure.metrics.correlation import point_biserial_correlation, tetrachoric_correlation
-from torch_measure.metrics.generalizability import d_study, g_coefficient, variance_components
+from torch_measure.metrics.generalizability import (
+    d_study,
+    g_coefficient,
+    intraclass_correlation,
+    variance_components,
+)
 from torch_measure.metrics.network import (
     betweenness_centrality,
     closeness_centrality,
@@ -34,6 +39,7 @@ __all__ = [
     "cronbach_alpha",
     "variance_components",
     "g_coefficient",
+    "intraclass_correlation",
     "d_study",
     "mokken_scalability",
     "expected_calibration_error",

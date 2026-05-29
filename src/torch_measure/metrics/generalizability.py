@@ -175,6 +175,67 @@ def g_coefficient(
     return s_p / denom
 
 
+def intraclass_correlation(
+    variance_components: dict,
+    form: str = "ICC3k",
+    n_items: int | None = None,
+) -> float:
+    """Intraclass correlation coefficient from two-way variance components.
+
+    Subjects are targets, items are raters. ICC2/ICC3 are single-rater
+    (absolute agreement / consistency); ICC2k/ICC3k average over k raters and
+    equal the absolute / relative :func:`g_coefficient` at ``n_reps=1``.
+    One-way forms (ICC1) need a one-way model and are not supported here.
+
+    Parameters
+    ----------
+    variance_components : dict
+        Output of :func:`variance_components`, or any dict with keys
+        ``subject``, ``item``, ``subject_item``, ``residual``.
+    form : {"ICC2", "ICC3", "ICC2k", "ICC3k"}
+        Which coefficient to compute. The ``k`` forms average over raters.
+    n_items : int | None
+        Number of raters k for the ``k`` forms; defaults to
+        ``variance_components["n_items"]``.
+
+    Returns
+    -------
+    float
+        ICC in [0, 1]. 0.0 if the denominator is numerically zero.
+    """
+    required = {"subject", "item", "subject_item", "residual"}
+    missing = required - set(variance_components)
+    if missing:
+        raise ValueError(f"Missing required keys: {sorted(missing)}.")
+    if form in {"ICC1", "ICC1k"}:
+        raise ValueError(f"{form} requires a one-way model and is not supported; use ICC2/ICC3/ICC2k/ICC3k.")
+    if form not in {"ICC2", "ICC3", "ICC2k", "ICC3k"}:
+        raise ValueError(f"Unknown form: {form!r}. Expected one of ICC2, ICC3, ICC2k, ICC3k.")
+
+    s_p = float(variance_components["subject"])
+    s_i = float(variance_components["item"])
+    s_pi = float(variance_components["subject_item"])
+    s_e = float(variance_components["residual"])
+
+    averaged = form.endswith("k")
+    absolute = form in {"ICC2", "ICC2k"}
+
+    if averaged:
+        k = n_items if n_items is not None else int(variance_components["n_items"])
+        if k < 1:
+            raise ValueError(f"n_items must be >= 1; got {k}.")
+    else:
+        k = 1
+
+    err = (s_i + s_pi + s_e) if absolute else (s_pi + s_e)
+    err = err / k
+
+    denom = s_p + err
+    if denom < 1e-12:
+        return 0.0
+    return s_p / denom
+
+
 def d_study(
     variance_components: dict,
     n_items_grid: Sequence[int],

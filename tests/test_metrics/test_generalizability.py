@@ -7,6 +7,7 @@ import pytest
 from torch_measure.metrics.generalizability import (
     d_study,
     g_coefficient,
+    intraclass_correlation,
     variance_components,
 )
 
@@ -212,6 +213,70 @@ class TestDStudy:
     def test_empty_grid_raises(self):
         with pytest.raises(ValueError, match="non-empty"):
             d_study(self._vc(), n_items_grid=[], n_reps_grid=[1])
+
+
+class TestIntraclassCorrelation:
+    def _vc(self) -> dict:
+        return {
+            "subject": 1.0,
+            "item": 0.5,
+            "subject_item": 0.3,
+            "residual": 0.2,
+            "n_items": 10,
+        }
+
+    def test_in_unit_interval(self):
+        for form in ("ICC2", "ICC3", "ICC2k", "ICC3k"):
+            icc = intraclass_correlation(self._vc(), form=form)
+            assert 0.0 <= icc <= 1.0
+
+    def test_equivalence_with_g_coefficient(self):
+        vc = self._vc()
+        k = 8
+        assert intraclass_correlation(vc, "ICC2k", n_items=k) == pytest.approx(
+            g_coefficient(vc, n_items=k, n_reps=1, type="absolute")
+        )
+        assert intraclass_correlation(vc, "ICC3k", n_items=k) == pytest.approx(
+            g_coefficient(vc, n_items=k, n_reps=1, type="relative")
+        )
+
+    def test_consistency_ge_absolute(self):
+        vc = self._vc()
+        assert intraclass_correlation(vc, "ICC3") >= intraclass_correlation(vc, "ICC2")
+        assert intraclass_correlation(vc, "ICC3k") >= intraclass_correlation(vc, "ICC2k")
+
+    def test_average_ge_single(self):
+        vc = self._vc()
+        assert intraclass_correlation(vc, "ICC3k", n_items=10) >= intraclass_correlation(vc, "ICC3")
+        assert intraclass_correlation(vc, "ICC2k", n_items=10) >= intraclass_correlation(vc, "ICC2")
+
+    def test_defaults_n_items_from_dict(self):
+        vc = self._vc()
+        assert intraclass_correlation(vc, "ICC3k") == pytest.approx(
+            intraclass_correlation(vc, "ICC3k", n_items=vc["n_items"])
+        )
+
+    def test_icc1_raises(self):
+        with pytest.raises(ValueError, match="one-way model"):
+            intraclass_correlation(self._vc(), form="ICC1")
+
+    def test_unknown_form_raises(self):
+        with pytest.raises(ValueError, match="Unknown form"):
+            intraclass_correlation(self._vc(), form="bogus")
+
+    def test_missing_keys_raises(self):
+        with pytest.raises(ValueError, match="Missing required keys"):
+            intraclass_correlation({"subject": 1.0}, form="ICC3")
+
+    def test_zero_components_returns_zero(self):
+        vc = {"subject": 0.0, "item": 0.0, "subject_item": 0.0, "residual": 0.0, "n_items": 5}
+        assert intraclass_correlation(vc, "ICC2") == 0.0
+
+    def test_from_real_variance_components(self):
+        df = _synth_crossed_design(n_p=60, n_i=12, n_r=2, seed=1)
+        vc = variance_components(df)
+        icc3k = intraclass_correlation(vc, "ICC3k")
+        assert icc3k == pytest.approx(g_coefficient(vc, n_items=vc["n_items"], n_reps=1, type="relative"))
 
 
 def test_end_to_end_pipeline():
