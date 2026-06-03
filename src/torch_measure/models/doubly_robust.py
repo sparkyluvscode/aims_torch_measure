@@ -53,12 +53,8 @@ class DoublyRobustModel(IRTModel):
 
         self._clip_propensity = clip_propensity
 
-        self.correction_ability = nn.Parameter(
-            torch.zeros(n_subjects, device=self._device)
-        )
-        self.correction_difficulty = nn.Parameter(
-            torch.zeros(n_items, device=self._device)
-        )
+        self.correction_ability = nn.Parameter(torch.zeros(n_subjects, device=self._device))
+        self.correction_difficulty = nn.Parameter(torch.zeros(n_items, device=self._device))
 
         self._propensity_weights: torch.Tensor | None = None
 
@@ -68,9 +64,7 @@ class DoublyRobustModel(IRTModel):
         i = query["item_idx"]
 
         base_prob = self._base.predict(query).detach()
-        correction = torch.sigmoid(
-            self.correction_ability[s] - self.correction_difficulty[i]
-        ) - 0.5
+        correction = torch.sigmoid(self.correction_ability[s] - self.correction_difficulty[i]) - 0.5
 
         return (base_prob + correction).clamp(1e-7, 1 - 1e-7)
 
@@ -145,19 +139,24 @@ class DoublyRobustModel(IRTModel):
         row_rate = obs.mean(dim=1)
         col_rate = obs.mean(dim=0)
 
-        features = torch.stack([
-            row_rate.repeat_interleave(n_i),
-            col_rate.repeat(n_s),
-        ], dim=1).numpy()
+        features = torch.stack(
+            [
+                row_rate.repeat_interleave(n_i),
+                col_rate.repeat(n_s),
+            ],
+            dim=1,
+        ).numpy()
 
         if hasattr(self._base, "ability") and hasattr(self._base, "difficulty"):
             ability = self._base.ability.detach().cpu()
             difficulty = self._base.difficulty.detach().cpu()
-            features = np.hstack([
-                features,
-                ability.repeat_interleave(n_i).numpy()[:, None],
-                difficulty.repeat(n_s).numpy()[:, None],
-            ])
+            features = np.hstack(
+                [
+                    features,
+                    ability.repeat_interleave(n_i).numpy()[:, None],
+                    difficulty.repeat(n_s).numpy()[:, None],
+                ]
+            )
 
         y = mask.reshape(-1).numpy().astype(np.int32)
 
@@ -173,9 +172,7 @@ class DoublyRobustModel(IRTModel):
 
         self._propensity_weights = (1.0 / propensity).to(self._device)
 
-    def _get_observation_weights(
-        self, subject_idx: torch.Tensor, item_idx: torch.Tensor
-    ) -> torch.Tensor:
+    def _get_observation_weights(self, subject_idx: torch.Tensor, item_idx: torch.Tensor) -> torch.Tensor:
         """Look up per-observation IPW weights."""
         if self._propensity_weights is None:
             return torch.ones(subject_idx.shape[0], device=self._device)

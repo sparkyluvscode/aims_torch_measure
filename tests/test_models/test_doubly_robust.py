@@ -35,7 +35,6 @@ def _make_sparse_rasch(
 
 
 class TestDoublyRobustModel:
-
     def test_init_freezes_base(self):
         base = Rasch(n_subjects=10, n_items=20)
         dr = DoublyRobustModel(base)
@@ -103,9 +102,7 @@ class TestDoublyRobustModel:
     def test_improves_prediction_on_sparse_data(self):
         """DR model should predict held-out cells better than base alone."""
         torch.manual_seed(42)
-        data_sparse, data_full, ability, difficulty = _make_sparse_rasch(
-            n_subjects=60, n_items=40, seed=11
-        )
+        data_sparse, data_full, ability, difficulty = _make_sparse_rasch(n_subjects=60, n_items=40, seed=11)
 
         base = Rasch(n_subjects=60, n_items=40)
         base.fit(data_sparse, max_epochs=200, verbose=False)
@@ -121,9 +118,7 @@ class TestDoublyRobustModel:
         dr_mse = ((dr_preds - data_full) ** 2).mean().item()
 
         # DR should not be substantially worse
-        assert dr_mse < base_mse + 0.02, (
-            f"DR MSE {dr_mse:.4f} much worse than base {base_mse:.4f}"
-        )
+        assert dr_mse < base_mse + 0.02, f"DR MSE {dr_mse:.4f} much worse than base {base_mse:.4f}"
 
     def test_propensity_clipping(self):
         data_sparse, _, _, _ = _make_sparse_rasch(20, 15, seed=13)
@@ -160,5 +155,6 @@ class TestDoublyRobustModel:
         base = Rasch(n_subjects=10, n_items=20)
         dr = DoublyRobustModel(base)
         from torch_measure.models._predictor import cartesian_query
+
         query = cartesian_query(10, 20)
         torch.testing.assert_close(dr(query), dr.predict(query))
